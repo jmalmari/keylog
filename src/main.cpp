@@ -1,5 +1,6 @@
 #include <iostream>
 #include <signal.h>
+#include <string.h>
 #include "input/inputdevice.hpp"
 #include "log/keylog.hpp"
 
@@ -23,21 +24,50 @@ void handleSignal(int signal)
 
 int main(int argc, char *argv[])
 {
-    char const* const defaultDeviceName = "/dev/input/ts";
-    char const* deviceName = defaultDeviceName;
+    char const* device = nullptr;
+    char const* name = nullptr;
 
-    if (1 < argc && argv[1] && *argv[1])
+    for (int i = 1; i < argc; ++i)
     {
-        deviceName = argv[1];
+        char const* const argName = argv[i];
+
+        if (argName[0] == '-' && (i + 1) < argc)
+        {
+            ++i;
+
+            char const* const argValue = argv[i];
+
+            switch (argName[1])
+            {
+            case 'd':
+                device = argValue;
+                break;
+            case 'n':
+                name = argValue;
+                break;
+            default:
+                std::cerr << "unknown arg " << argName[1] << '\n';
+                break;
+            }
+        }
     }
 
-    std::cout << "using input device " << deviceName << std::endl;
+    if (!device || !name)
+    {
+        std::cerr << "Usage:\t" << argv[0] <<
+            " -d <event device path>"
+            " -n <descriptive device name>\n";
+        return 1;
+    }
+
+    std::cout << "using input device " << name
+              << " (" << device << ")" << std::endl;
 
     (void)signal(SIGINT, &handleSignal);
 
-    InputDevice input(deviceName);
+    InputDevice input(device);
 
-    KeyLog keylog("keylog.db");
+    KeyLog keylog("keylog.db", name);
     input.registerListener(&keylog);
 
     while (input.read() && !g_quit)

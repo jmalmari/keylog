@@ -23,14 +23,15 @@ struct StmtDeleter
 {
     void operator()(sqlite3_stmt* stmt)
     {
-        sqlite3_finalize(stmt);
+        (void)sqlite3_finalize(stmt);
     }
 };
 
 class KeyLog : public IInputListener
 {
 public:
-    KeyLog(std::string const& dbname);
+    KeyLog(std::string const& dbname,
+           std::string const& deviceName);
     virtual ~KeyLog();
 
     void printStats(std::ostream& stream) const;
@@ -40,12 +41,15 @@ protected:
 
 private:
     void migrate();
-    bool migrateStep();
     int dbVersion();
-    void createDatabase();
+    bool executeSql(std::string const& sql);
+    bool executeSqlScalar(std::string const& sql, int& result);
+    int initDevice(std::string const& name);
 
 private:
     std::unique_ptr<sqlite3, DbDeleter> _db;
+    int _dbVersion;
+    int _deviceId;
 };
 
 #endif

@@ -6,28 +6,16 @@
 #include <string.h>
 #include <exception>
 #include "../input/keyevent.hpp"
+#include "../input/symbolmap.hpp"
 #include "keylog.hpp"
-
-namespace {
-
-int const CurrentDatabaseVersion = 1;
-
-char const* const SqlInitScript = R"(
-PRAGMA user_version = 1;
-
-CREATE TABLE KeyEvent (
-    id INTEGER PRIMARY KEY,
-    key INTEGER,
-    action INTEGER,
-    timestamp INTEGER
-)
-)";
-
-}
+#include "databasesql.hpp"
 
 using namespace std::chrono;
 
-KeyLog::KeyLog(std::string const& dbname)
+KeyLog::KeyLog(std::string const& dbname,
+               std::string const& deviceName) :
+    _dbVersion(0),
+    _deviceId(-1)
 {
     sqlite3* pdb;
     int status = sqlite3_open(dbname.c_str(), &pdb);
@@ -40,6 +28,8 @@ KeyLog::KeyLog(std::string const& dbname)
     _db.reset(pdb);
 
     migrate();
+
+    _deviceId = initDevice(deviceName);
 }
 
 KeyLog::~KeyLog()
@@ -48,68 +38,98 @@ KeyLog::~KeyLog()
 
 void KeyLog::migrate()
 {
-    while (migrateStep())
-    {
-        std::cout << "migrated to version " << dbVersion() << std::endl;
-    }
-}
+    int vfrom = dbVersion();
+    _dbVersion = vfrom;
 
-bool KeyLog::migrateStep()
-{
-    switch (dbVersion())
+    while (vfrom < SqlMigrationSteps.size())
     {
-    case 0:
-        createDatabase();
-        return true;
-    case 1:
-        return false;
-    default:
-        throw std::runtime_error("unknown database version");
+        if (!executeSql("BEGIN EXCLUSIVE TRANSACTION"))
+        {
+            std::cerr << "Couldn't obtain exclusive lock on database.\n";
+            return;
+        }
+
+        if (executeSql(SqlMigrationSteps[vfrom]))
+        {
+            (void)executeSql("COMMIT");
+        }
+        else
+        {
+            (void)executeSql("ROLLBACK");
+        }
+
+        _dbVersion = dbVersion();
+        int vto = _dbVersion;
+
+        if (vto <= vfrom)
+        {
+            throw std::runtime_error("migration step failed");
+        }
+
+        std::cout << "migrated database from version "
+                  << vfrom << " to " << vto << std::endl;
+
+        // prepare for next step
+        vfrom = vto;
     }
 }
 
 int KeyLog::dbVersion()
 {
-    sqlite3_stmt* stmt;
+    int version;
+    if (executeSqlScalar("PRAGMA user_version", version))
+    {
+        return version;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
+bool KeyLog::executeSqlScalar(std::string const& sql, int& result)
+{
+    sqlite3_stmt* p;
     int status = sqlite3_prepare_v2(_db.get(),
-                                    "PRAGMA user_version", -1,
-                                    &stmt, nullptr);
+                                    sql.c_str(), -1,
+                                    &p, nullptr);
+
+    std::unique_ptr<sqlite3_stmt, StmtDeleter> stmt(p);
+    p = nullptr;
 
     if (status != SQLITE_OK)
     {
-        throw std::runtime_error("user version query prepare failed");
+        throw std::runtime_error("sql query prepare failed");
     }
 
-    status = sqlite3_step(stmt);
+    status = sqlite3_step(stmt.get());
+
+    if (status == SQLITE_DONE)
+    {
+        return false;
+    }
 
     if (status != SQLITE_ROW)
     {
         throw std::runtime_error("got other than SQLITE_ROW");
     }
 
-    int version = sqlite3_column_int(stmt, 0);
+    result = sqlite3_column_int(stmt.get(), 0);
 
-    status = sqlite3_step(stmt);
+    status = sqlite3_step(stmt.get());
 
     if (status != SQLITE_DONE)
     {
         throw std::runtime_error("expected SQLITE_DONE");
     }
 
-    status = sqlite3_finalize(stmt);
-
-    if (status != SQLITE_OK)
-    {
-        throw std::runtime_error("statement finalize failed");
-    }
-
-    return version;
+    return true;
 }
 
-void KeyLog::createDatabase()
+bool KeyLog::executeSql(std::string const& sql)
 {
     char* errMsg;
-    int status = sqlite3_exec(_db.get(), SqlInitScript,
+    int status = sqlite3_exec(_db.get(), sql.c_str(),
                               nullptr, nullptr, &errMsg);
 
     if (status != SQLITE_OK)
@@ -118,6 +138,35 @@ void KeyLog::createDatabase()
         sqlite3_free(errMsg);
         errMsg = nullptr;
     }
+
+    return status == SQLITE_OK;
+}
+
+int KeyLog::initDevice(std::string const& name)
+{
+    std::ostringstream idQuery;
+    idQuery << "SELECT id FROM Device WHERE name='"
+        << name << "';";
+
+    int id;
+    if (executeSqlScalar(idQuery.str(), id))
+    {
+        return id;
+    }
+    else
+    {
+        std::ostringstream idInsert;
+        idInsert << "INSERT INTO Device (name) VALUES ('"
+            << name << "');";
+
+        if (executeSql(idInsert.str()) && executeSqlScalar(idQuery.str(), id))
+        {
+            return id;
+        }
+    }
+
+    std::cerr << "couldn't get device id\n";
+    return -1;
 }
 
 void KeyLog::printStats(std::ostream&) const
@@ -142,16 +191,45 @@ void KeyLog::onKeyEvent(KeyEvent const& event)
     time_point<steady_clock, milliseconds> ms(
         time_point_cast<milliseconds>(steady_clock::now()));
 
-    std::ostringstream sql;
-    sql <<
-        "INSERT INTO KeyEvent (key, action, timestamp) "
-        "VALUES ("
-        << event.scancode << ", "
-        << event.action << ", "
-        << ms.time_since_epoch().count()
-        << ")";
+    std::cout
+        << event.action
+        << "\t" << std::dec << event.scancode
+        << " = 0x" << std::hex << event.scancode << std::dec
+        << " (keycode " << event.key << ")"
+        << ", " << SymbolNames.at(event.key % SymbolNames.size())
+        << std::endl;
 
-    std::cout << sql.str() << std::endl;
+    if (_dbVersion != DatabaseVersion)
+    {
+        std::cerr << "Database is at version " << _dbVersion
+                  << ", migration needed to version " << DatabaseVersion
+                  << std::endl;
+        return;
+    }
+
+    if (_deviceId < 0)
+    {
+        std::cerr << "No device id\n";
+        return;
+    }
+
+    std::ostringstream sql;
+    sql << "INSERT INTO KeyEvent (device, timestamp, action, scan, key) VALUES ("
+        << _deviceId << ", "
+        << ms.time_since_epoch().count() << ", "
+        << static_cast<int>(event.action) << ", "
+        << event.scancode << ", ";
+    if (event.key < 0)
+    {
+        sql << "NULL";
+    }
+    else
+    {
+        sql << event.key;
+    }
+
+    sql << ");";
+
 
     char* errMsg(nullptr);
     int status = sqlite3_exec(_db.get(), sql.str().c_str(), nullptr, nullptr, &errMsg);

@@ -66,6 +66,10 @@ InputDevice::InputDevice(std::string const& devicePath) :
     _devicePath(devicePath),
     _device(devicePath)
 {
+    if (!_device.is_open())
+    {
+        std::cerr << "couldn't open device " << devicePath << std::endl;
+    }
 }
 
 InputDevice::~InputDevice()
