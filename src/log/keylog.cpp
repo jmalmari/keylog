@@ -146,7 +146,7 @@ int KeyLog::initDevice(std::string const& name)
 {
     std::ostringstream idQuery;
     idQuery << "SELECT id FROM Device WHERE name='"
-        << name << "';";
+            << name << "';";
 
     int id;
     if (executeSqlScalar(idQuery.str(), id))
@@ -157,7 +157,7 @@ int KeyLog::initDevice(std::string const& name)
     {
         std::ostringstream idInsert;
         idInsert << "INSERT INTO Device (name) VALUES ('"
-            << name << "');";
+                 << name << "');";
 
         if (executeSql(idInsert.str()) && executeSqlScalar(idQuery.str(), id))
         {
@@ -196,7 +196,7 @@ void KeyLog::onKeyEvent(KeyEvent const& event)
         << "\t" << std::dec << event.scancode
         << " = 0x" << std::hex << event.scancode << std::dec
         << " (keycode " << event.key << ")"
-        << ", " << SymbolNames.at(event.key % SymbolNames.size())
+        << ", " << symbolName(event.key)
         << std::endl;
 
     if (_dbVersion != DatabaseVersion)
@@ -214,18 +214,18 @@ void KeyLog::onKeyEvent(KeyEvent const& event)
     }
 
     std::ostringstream sql;
-    sql << "INSERT INTO KeyEvent (device, timestamp, action, scan, key) VALUES ("
+    sql << "INSERT INTO KeyEvent (device, timestamp, action, scan, key, symbol) VALUES ("
         << _deviceId << ", "
         << ms.time_since_epoch().count() << ", "
         << static_cast<int>(event.action) << ", "
         << event.scancode << ", ";
     if (event.key < 0)
     {
-        sql << "NULL";
+        sql << "NULL, NULL";
     }
     else
     {
-        sql << event.key;
+        sql << event.key << ", '" << symbolName(event.key) << "'";
     }
 
     sql << ");";
@@ -238,5 +238,17 @@ void KeyLog::onKeyEvent(KeyEvent const& event)
     {
         std::cerr << "sqlite error: " << errMsg << "\n";
         sqlite3_free(errMsg);
+    }
+}
+
+char const* KeyLog::symbolName(int keycode) const
+{
+    if (0 <= keycode && keycode < SymbolNames.size())
+    {
+        return SymbolNames.at(keycode);
+    }
+    else
+    {
+        return "unknown";
     }
 }

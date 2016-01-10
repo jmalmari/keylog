@@ -45,6 +45,7 @@ private:
     bool executeSql(std::string const& sql);
     bool executeSqlScalar(std::string const& sql, int& result);
     int initDevice(std::string const& name);
+    char const* symbolName(int keycode) const;
 
 private:
     std::unique_ptr<sqlite3, DbDeleter> _db;
