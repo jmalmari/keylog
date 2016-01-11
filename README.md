@@ -2,7 +2,7 @@
 
 ## Build dependencies
 
-- *sqlite3-dev* – SQLite3 database for key events
+- *libsqlite3-dev* – SQLite3 database for key events
 
 ## Building
 
