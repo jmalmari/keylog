@@ -193,11 +193,13 @@ void KeyLog::onKeyEvent(KeyEvent const& event)
 
     std::cout
         << event.action
-        << "\t" << std::dec << event.scancode
-        << " = 0x" << std::hex << event.scancode << std::dec
-        << " (keycode " << event.key << ")"
+        << "\t"
+        << std::hex
+        << "scan=" << (~(0x80) & event.scancode)
+        << (0x80 & event.scancode ? " (ext)":"")
+        << ", key=" << event.key
         << ", " << symbolName(event.key)
-        << std::endl;
+        << '\n';
 
     if (_dbVersion != DatabaseVersion)
     {
