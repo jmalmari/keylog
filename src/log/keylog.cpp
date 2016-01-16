@@ -188,8 +188,8 @@ void KeyLog::onKeyEvent(KeyEvent const& event)
         return;
     }
 
-    time_point<steady_clock, milliseconds> ms(
-        time_point_cast<milliseconds>(steady_clock::now()));
+    time_point<system_clock, milliseconds> ms(
+        time_point_cast<milliseconds>(system_clock::now()));
 
     std::cout
         << event.action
