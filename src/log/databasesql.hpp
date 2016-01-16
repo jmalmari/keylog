@@ -24,7 +24,6 @@ CREATE TABLE KeyEvent (
     action INTEGER NOT NULL,
     scan INTEGER NOT NULL,
     key INTEGER,
-    symbol TEXT,
     FOREIGN KEY(device) REFERENCES Device(id)
 );
 

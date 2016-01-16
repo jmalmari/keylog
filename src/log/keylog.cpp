@@ -214,18 +214,19 @@ void KeyLog::onKeyEvent(KeyEvent const& event)
     }
 
     std::ostringstream sql;
-    sql << "INSERT INTO KeyEvent (device, timestamp, action, scan, key, symbol) VALUES ("
+    sql << "INSERT INTO KeyEvent (device, timestamp, action, scan, key) VALUES ("
         << _deviceId << ", "
         << ms.time_since_epoch().count() << ", "
         << static_cast<int>(event.action) << ", "
         << event.scancode << ", ";
+
     if (event.key < 0)
     {
-        sql << "NULL, NULL";
+        sql << "NULL";
     }
     else
     {
-        sql << event.key << ", '" << symbolName(event.key) << "'";
+        sql << event.key;
     }
 
     sql << ");";
